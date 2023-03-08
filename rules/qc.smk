@@ -7,7 +7,7 @@ rule fastqc:
     threads: get_resource("fastqc","threads")
     resources:
         mem_mb = get_resource("fastqc","mem"),
-        walltime = get_resource("fastqc","walltime")
+        runtime = get_resource("fastqc","runtime")
     wrapper:
         "0.79.0/bio/fastqc"
 
@@ -21,7 +21,7 @@ rule samtools_stats:
     threads: get_resource("samtools_stats","threads")
     resources:
         mem_mb = get_resource("samtools_stats","mem"),
-        walltime = get_resource("samtools_stats","walltime")
+        runtime = get_resource("samtools_stats","runtime")
     wrapper:
         "0.79.0/bio/samtools/stats"
 
@@ -34,7 +34,7 @@ rule genome_dict:
     threads: get_resource("genome_dict","threads")
     resources:
         mem_mb = get_resource("genome_dict","mem"),
-        walltime = get_resource("genome_dict","walltime")
+        runtime = get_resource("genome_dict","runtime")
     conda:
         "../envs/gatk.yaml"
     log:
@@ -56,7 +56,7 @@ if "restrict_regions" in config["processing"]:
             "../envs/picard.yaml"
         resources:
             mem_mb = get_resource("bed_to_interval","mem"),
-            walltime = get_resource("bed_to_interval","walltime")
+            runtime = get_resource("bed_to_interval","runtime")
         params:
             extra = "-Xmx{}m".format(get_resource("bed_to_interval","mem"))
         shell:
@@ -75,7 +75,7 @@ if "restrict_regions" in config["processing"]:
         threads: get_resource("picard_collect_hs_metrics","threads")
         resources:
             mem_mb = get_resource("picard_collect_hs_metrics","mem"),
-            walltime = get_resource("picard_collect_hs_metrics","walltime")
+            runtime = get_resource("picard_collect_hs_metrics","runtime")
         params:
             extra = ""
         wrapper:
@@ -96,6 +96,6 @@ rule multiqc:
     threads: get_resource("multiqc","threads")
     resources:
         mem_mb = get_resource("multiqc","mem"),
-        walltime = get_resource("multiqc","walltime")
+        runtime = get_resource("multiqc","runtime")
     wrapper:
         "0.79.0/bio/multiqc"
