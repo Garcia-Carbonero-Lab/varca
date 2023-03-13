@@ -99,10 +99,14 @@ rule learn_read_orientation_model:
     output:
         rom=f"{OUTDIR}/mutect/{{sample}}_read_orientation_model.tar.gz"
     conda: "../envs/gatk.yaml"
+    resources:
+        mem_mb = get_resource("learn_read_orientation_model","mem"),
+        runtime = get_resource("learn_read_orientation_model","runtime")
     log:
         f"{LOGDIR}/gatk/read_orientation_model.{{sample}}.log"
     shell:"""
-        gatk LearnReadOrientationModel -I {input.f1r2} -O {output.rom}
+
+        gatk --java-options "-Xmx300G -Xms300G -XX:-UseGCOverheadLimit" LearnReadOrientationModel -I {input.f1r2} -O {output.rom}
     """
 
 
