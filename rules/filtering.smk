@@ -105,8 +105,7 @@ rule learn_read_orientation_model:
     log:
         f"{LOGDIR}/gatk/read_orientation_model.{{sample}}.log"
     shell:"""
-
-        gatk --java-options "-Xmx300G -Xms300G -XX:-UseGCOverheadLimit" LearnReadOrientationModel -I {input.f1r2} -O {output.rom}
+        gatk LearnReadOrientationModel -I {input.f1r2} -O {output.rom}
     """
 
 

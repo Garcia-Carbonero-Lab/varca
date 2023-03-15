@@ -20,6 +20,7 @@ rule snpeff:
         csvstats=f"{OUTDIR}/snpeff/{{group}}.csv"
     log:
         f"{LOGDIR}/snpeff/{{group}}.snpeff.log"
+    conda:"../envs/snpeff.yaml"
     threads: get_resource("snpeff","threads")
     resources:
         mem_mb = get_resource("snpeff","mem"),

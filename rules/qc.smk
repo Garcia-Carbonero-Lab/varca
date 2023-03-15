@@ -98,4 +98,4 @@ rule multiqc:
         mem_mb = get_resource("multiqc","mem"),
         runtime = get_resource("multiqc","runtime")
     wrapper:
-        "0.79.0/bio/multiqc"
+        "v1.23.4/bio/multiqc"
