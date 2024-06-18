@@ -28,7 +28,7 @@ rule snpeff:
     conda:"../envs/snpeff.yaml"
     threads: get_resource("snpeff","threads")
     resources:
-        mem_mb = get_resource("snpeff","mem"),
+        mem_mb = get_resource("snpeff","mem_mb"),
         runtime = get_resource("snpeff","runtime")
     params:
         java_opts="-XX:ParallelGCThreads={}".format(get_resource("snpeff","threads")),
@@ -106,12 +106,12 @@ rule vep_mutect:
         calls=f"{OUTDIR}/annotated/{{sample}}_mutect.vep.vcf.gz",
         stats=f"{OUTDIR}/annotated/{{sample}}_mutect.vep.vcf.gz_summary.html"
     params:
-        get_vep_params()
-    conda:"../envs/vep.yaml"
+        plugins=f"{config['annotation']['vep']['plugins']}",
+        extra=f"{config['annotation']['vep']['extra']}"
     threads: get_resource("vep","threads")
     resources:
-        mem_mb = get_resource("vep","mem"),
-        walltime = get_resource("vep","walltime")
+        mem_mb = get_resource("vep","mem_mb"),
+        runtime = get_resource("vep","runtime")
     log:
         f"{LOGDIR}/vep/mutect_{{sample}}_vep.log"
     threads: get_resource("vep_mutect","threads")
