@@ -10,15 +10,17 @@ rule select_calls:
     output:
         vcf=temp(f"{OUTDIR}/filtered/{{group}}.{{vartype}}.vcf.gz")
     params:
-        extra=get_vartype_arg
+        extra=get_vartype_arg,
+        java_opts="-XX:ParallelGCThreads={}".format(get_resource("select_calls","threads"))
     log:
         f"{LOGDIR}/gatk/selectvariants/{{group}}.{{vartype}}.log"
-    threads: get_resource("select_calls","threads")
     resources:
-        mem_mb = get_resource("select_calls","mem"),
+        mem_mb = get_resource("select_calls","mem_mb"),
         runtime = get_resource("select_calls","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{group}}.{{vartype}}.select_calls.txt"
     wrapper:
-        "0.79.0/bio/gatk/selectvariants"
+        "v3.5.0/bio/gatk/selectvariants"
 
 
 def get_filter(wildcards):
@@ -34,15 +36,17 @@ rule hard_filter_calls:
     output:
         vcf=temp(f"{OUTDIR}/filtered/{{group}}.{{vartype}}.hardfiltered.vcf.gz")
     params:
-        filters=get_filter
-    threads: get_resource("hard_filter_calls","threads")
-    resources:
-        mem_mb = get_resource("hard_filter_calls","mem"),
-        runtime = get_resource("hard_filter_calls","runtime")
+        filters=get_filter,
+        java_opts="-XX:ParallelGCThreads={}".format(get_resource("hard_filter_calls","threads"))
     log:
         f"{LOGDIR}/gatk/variantfiltration/{{group}}.{{vartype}}.log"
+    resources:
+        mem_mb = get_resource("hard_filter_calls","mem_mb"),
+        runtime = get_resource("hard_filter_calls","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{group}}.{{vartype}}.hard_filter_calls.txt"
     wrapper:
-        "0.79.0/bio/gatk/variantfiltration"
+        "v3.5.0/bio/gatk/variantfiltration"
 
 
 rule recalibrate_calls:
@@ -63,15 +67,17 @@ rule recalibrate_calls:
                 else "INDEL",
         resources=config["params"]["gatk"]["VariantRecalibrator"]["parameters"],
         annotation=config["params"]["gatk"]["VariantRecalibrator"]["annotation"],
-        extra=config["params"]["gatk"]["VariantRecalibrator"]["extra"]
+        extra=config["params"]["gatk"]["VariantRecalibrator"]["extra"],
+        java_opts="-XX:ParallelGCThreads={}".format(get_resource("recalibrate_calls","threads"))
     log:
         f"{LOGDIR}/gatk/variantrecalibrator/{{group}}.{{vartype}}.log"
-    threads: get_resource("recalibrate_calls","threads")
     resources:
-        mem_mb = get_resource("recalibrate_calls","mem"),
+        mem_mb = get_resource("recalibrate_calls","mem_mb"),
         runtime = get_resource("recalibrate_calls","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{group}}.{{vartype}}.recalibrate_calls.txt"
     wrapper:
-        "0.79.0/bio/gatk/variantrecalibrator"
+        "v3.5.0/bio/gatk/variantrecalibrator"
 
 rule merge_calls:
     input:
@@ -82,62 +88,72 @@ rule merge_calls:
                               else "hardfiltered")
     output:
         vcf=f"{OUTDIR}/filtered/{{group}}.vcf.gz"
+    params:
+        extra = "",
+        java_opts = "-XX:ParallelGCThreads={}".format(get_resource("merge_calls","threads"))
     log:
         f"{LOGDIR}/picard/{{group}}.merge-filtered.log"
-    threads: get_resource("merge_calls","threads")
     resources:
-        mem_mb = get_resource("merge_calls","mem"),
+        mem_mb = get_resource("merge_calls","mem_mb"),
         runtime = get_resource("merge_calls","runtime")
-    params:
-        extra = ""
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{group}}.merge_calls.txt"
     wrapper:
-        "0.79.0/bio/picard/mergevcfs"
+        "v3.5.0/bio/picard/mergevcfs"
 
 rule learn_read_orientation_model:
     input:
         f1r2=f"{OUTDIR}/mutect/{{sample}}.f1r2.tar.gz"
     output:
         rom=f"{OUTDIR}/mutect/{{sample}}_read_orientation_model.tar.gz"
-    conda: "../envs/gatk.yaml"
-    resources:
-        mem_mb = get_resource("learn_read_orientation_model","mem"),
-        runtime = get_resource("learn_read_orientation_model","runtime")
     log:
         f"{LOGDIR}/gatk/read_orientation_model.{{sample}}.log"
-    shell:"""
-        gatk LearnReadOrientationModel -I {input.f1r2} -O {output.rom}
-    """
-
+    params:
+        extra="",
+        java_opts="-XX:ParallelGCThreads={}".format(get_resource("learn_read_orientation_model", "threads"))
+    resources:
+        mem_mb = get_resource("learn_read_orientation_model","mem_mb"),
+        runtime = get_resource("learn_read_orientation_model","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{sample}}.learn_read_orientation_model.txt"
+    wrapper:
+        "v3.5.0/bio/gatk/learnreadorientationmodel"
 
 rule filter_mutect_calls:
     input:
         vcf=f"{OUTDIR}/mutect/{{sample}}.vcf.gz",
         ref=config["ref"]["genome"],
-        rom=f"{OUTDIR}/mutect/{{sample}}_read_orientation_model.tar.gz" if config["filtering"]["mutect"]["lrom"] else []
+        f1r2=f"{OUTDIR}/mutect/{{sample}}_read_orientation_model.tar.gz" if config["filtering"]["mutect"]["lrom"] else []
     output:
-        vcf=f"{OUTDIR}/mutect_filter/{{sample}}_passlable.vcf.gz"
+        vcf=f"{OUTDIR}/mutect_filter/{{sample}}_passlabel.vcf.gz"
     params:
-        rom="--ob-priors " if config["filtering"]["mutect"]["lrom"] else ""
-    conda: "../envs/gatk.yaml"
+        extra=config["params"]["gatk"]["mutect"],
+        java_opts="-XX:ParallelGCThreads={}".format(get_resource("filter_mutect_calls", "threads"))
     log:
         f"{LOGDIR}/gatk/mutect_filter.{{sample}}.log"
-    shell:"""
-        gatk FilterMutectCalls -R {input.ref} -V {input.vcf} {params.rom} {input.rom} -O {output}
-    """
+    resources:
+        mem_mb = get_resource("filter_mutect_calls","mem_mb"),
+        runtime = get_resource("filter_mutect_calls","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{sample}}.filter_mutect_calls.txt"
+    wrapper:
+        "v3.5.0/bio/gatk/filtermutectcalls"
 
 rule filter_mutect_2:
     input:
-        vcf=f"{OUTDIR}/mutect_filter/{{sample}}_passlable.vcf.gz",
+        vcf=f"{OUTDIR}/mutect_filter/{{sample}}_passlabel.vcf.gz",
         ref=config["ref"]["genome"]
     output:
-        vcf=f"{OUTDIR}/mutect_filter/{{sample}}_passlable_filtered.vcf.gz"
+        vcf=f"{OUTDIR}/mutect_filter/{{sample}}_passlabel_filtered.vcf.gz"
     params:
-        filters={"DPfilter": config["filtering"]["mutect"]["depth"]}
-    threads: get_resource("hard_filter_calls","threads")
-    resources:
-        mem_mb = get_resource("hard_filter_calls","mem"),
-        runtime = get_resource("hard_filter_calls","runtime")
+        filters={"DPfilter": config["filtering"]["mutect"]["depth"]},
+        java_opts="-XX:ParallelGCThreads={}".format(get_resource("filter_mutect_2","threads"))
     log:
         f"{LOGDIR}/gatk/variantfiltration/{{sample}}_mutect.log"
+    resources:
+        mem_mb = get_resource("filter_mutect_2","mem_mb"),
+        runtime = get_resource("filter_mutect_2","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{sample}}.filter_mutect_2.txt"
     wrapper:
-        "0.79.0/bio/gatk/variantfiltration"
+        "v3.5.0/bio/gatk/variantfiltration"

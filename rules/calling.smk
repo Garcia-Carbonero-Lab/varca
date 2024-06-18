@@ -1,13 +1,19 @@
 if "restrict_regions" in config["processing"]:
     rule sort_bed:
         input:
-            config["processing"]["restrict_regions"]
+            in_file = config["processing"]["restrict_regions"]
         output:
-            temp("{OUTDIR}/called/regions.sorted.bed")
-        conda:
-            "../envs/bedops.yaml"
-        shell:
-            "sort-bed {input} > {output}"
+            temp(f"{OUTDIR}/called/regions.sorted.bed")
+        params:
+            extra = ""
+        resources:
+            threads = get_resource("sort_bed","threads"),
+            mem_mb = get_resource("sort_bed","mem_mb"),
+            runtime = get_resource("sort_bed","runtime")
+        benchmark:
+            f"{LOGDIR}/benchmarks/sort_bed.txt"
+        wrapper:
+            "v3.5.0/bio/bedtools/sort"
 
     rule compose_regions:
         input:
@@ -16,6 +22,12 @@ if "restrict_regions" in config["processing"]:
             f"{OUTDIR}/called/{{contig}}.regions.bed"
         params:
             contig = lambda wc: get_contig_file_name(wc.contig)
+        resources:
+            threads = get_resource("compose_regions","threads"),
+            mem_mb = get_resource("compose_regions","mem_mb"),
+            runtime = get_resource("compose_regions","runtime")
+        benchmark:
+            f"{LOGDIR}/benchmarks/{{contig}}.compose_regions.txt"
         conda:
             "../envs/bedops.yaml"
         shell:
@@ -33,12 +45,14 @@ rule call_variants:
         f"{LOGDIR}/gatk/haplotypecaller/{{sample}}.{{contig}}.log"
     threads: get_resource("call_variants","threads")
     resources:
-        mem_mb = get_resource("call_variants","mem"),
+        mem_mb = get_resource("call_variants","mem_mb"),
         runtime = get_resource("call_variants","runtime")
     params:
         extra=get_call_variants_params
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{sample}}.{{contig}}.call_variants.txt"
     wrapper:
-        "0.79.0/bio/gatk/haplotypecaller"
+        "v3.5.0/bio/gatk/haplotypecaller"
 
 
 rule combine_calls:
@@ -49,12 +63,15 @@ rule combine_calls:
         gvcf=f"{OUTDIR}/called/{{group}}.{{contig}}.g.vcf.gz"
     log:
         f"{LOGDIR}/gatk/combinegvcfs.{{group}}.{{contig}}.log"
-    threads: get_resource("combine_calls","threads")
+    params:
+        java_opts="-XX:ParallelGCThreads={}".format(get_resource("combine_calls","threads"))
     resources:
-        mem_mb = get_resource("combine_calls","mem"),
+        mem_mb = get_resource("combine_calls","mem_mb"),
         runtime = get_resource("combine_calls","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{group}}.{{contig}}.combine_calls.txt"
     wrapper:
-        "0.79.0/bio/gatk/combinegvcfs"
+        "v3.5.0/bio/gatk/combinegvcfs"
 
 
 rule genotype_variants:
@@ -64,15 +81,17 @@ rule genotype_variants:
     output:
         vcf=temp(f"{OUTDIR}/genotyped/{{group}}.{{contig}}.vcf.gz")
     params:
-        extra=config["params"]["gatk"]["GenotypeGVCFs"]
+        extra=config["params"]["gatk"]["GenotypeGVCFs"],
+        java_opts="-XX:ParallelGCThreads={}".format(get_resource("genotype_variants","threads"))
     log:
         f"{LOGDIR}/gatk/genotypegvcfs.{{group}}.{{contig}}.log"
-    threads: get_resource("genotype_variants","threads")
     resources:
-        mem_mb = get_resource("genotype_variants","mem"),
+        mem_mb = get_resource("genotype_variants","mem_mb"),
         runtime = get_resource("genotype_variants","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{group}}.{{contig}}.genotype_variants.txt"
     wrapper:
-        "0.79.0/bio/gatk/genotypegvcfs"
+        "v3.5.0/bio/gatk/genotypegvcfs"
 
 
 rule merge_variants:
@@ -82,14 +101,16 @@ rule merge_variants:
         vcf=f"{OUTDIR}/genotyped/{{group}}.vcf.gz"
     log:
         f"{LOGDIR}/picard/{{group}}.merge-genotyped.log"
-    threads: get_resource("merge_variants","threads")
-    resources:
-        mem_mb = get_resource("merge_variants","mem"),
-        runtime = get_resource("merge_variants","runtime")
     params:
-        extra = ""
+        extra = "",
+        java_opts="-XX:ParallelGCThreads={}".format(get_resource("merge_variants","threads"))
+    resources:
+        mem_mb = get_resource("merge_variants","mem_mb"),
+        runtime = get_resource("merge_variants","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{group}}.merge_variants.txt"
     wrapper:
-        "0.79.0/bio/picard/mergevcfs"
+        "v3.5.0/bio/picard/mergevcfs"
 
 rule merge_bams:
     input: lambda wc: get_sample_bams(wc.sample),
@@ -97,45 +118,48 @@ rule merge_bams:
         f"{OUTDIR}/merged_bams/{{sample}}.bam"
     threads: get_resource("merge_bams","threads")
     resources:
-        mem_mb = get_resource("merge_bams","mem"),
+        mem_mb = get_resource("merge_bams","mem_mb"),
         runtime = get_resource("merge_bams","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{sample}}.merge_bams.txt"
     wrapper:
-        "0.79.0/bio/samtools/merge"
+        "v3.5.0/bio/samtools/merge"
 
 rule samtools_index_merged:
     input:
         f"{OUTDIR}/merged_bams/{{sample}}.bam"
     output:
         f"{OUTDIR}/merged_bams/{{sample}}.bai"
-    threads: get_resource("samtools_index","threads")
-    resources:
-        mem_mb = get_resource("samtools_index","mem"),
-        runtime = get_resource("samtools_index","runtime")
     log:
         f"{LOGDIR}/samtools/index_merged/{{sample}}.log"
+    threads: get_resource("samtools_index","threads")
+    resources:
+        mem_mb = get_resource("samtools_index","mem_mb"),
+        runtime = get_resource("samtools_index","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{sample}}.samtools_index_merged.txt"
     wrapper:
-        "0.79.0/bio/samtools/index"
+        "v3.5.0/bio/samtools/index"
 
 rule mutect:
     input:
-        bam=lambda wc: get_merged_bam(wc.sample)[0],
+        map=lambda wc: get_merged_bam(wc.sample)[0],
         bai=lambda wc: get_merged_bam(wc.sample)[1],
         cbam=lambda wc: get_merged_bam(samples.loc[(wc.sample),"control"])[0],
         cbai=lambda wc: get_merged_bam(samples.loc[(wc.sample),"control"])[1],
-        ref=config["ref"]["genome"]
+        fasta=config["ref"]["genome"],
     output:
-        out=f"{OUTDIR}/mutect/{{sample}}.vcf.gz",
+        vcf=f"{OUTDIR}/mutect/{{sample}}.vcf.gz",
         f1r2=f"{OUTDIR}/mutect/{{sample}}.f1r2.tar.gz"
     params:
-        regions=lambda wc: get_mutect_params(wc.sample)[0],
-        normal=lambda wc: get_mutect_params(wc.sample)[1]
-    threads: get_resource("mutect","threads")
-    resources:
-        mem_mb = get_resource("mutect","mem"),
-        runtime = get_resource("mutect","runtime")
-    conda: "../envs/gatk.yaml"
+        extra=lambda wc: get_mutect_params(wc.sample) + get_regions_param()
     log:
         f"{LOGDIR}/gatk/mutect.{{sample}}.log"
-    shell:"""
-        gatk Mutect2 --callable-depth 1 --native-pair-hmm-threads 16 -R {input.ref} {params.regions} -I {input.bam} {params.normal} -O {output.out} --f1r2-tar-gz {output.f1r2}
-    """
+    threads: get_resource("mutect","threads")
+    resources:
+        mem_mb = get_resource("mutect","mem_mb"),
+        runtime = get_resource("mutect","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{sample}}.mutect.txt"
+    wrapper:
+        "v3.5.0/bio/gatk/mutect"

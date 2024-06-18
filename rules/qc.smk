@@ -1,15 +1,36 @@
-rule fastqc:
+rule fastqc_untrimmed:
     input:
         lambda wc: get_fastq(wc)[wc.read]
     output:
         html=f"{OUTDIR}/qc/fastqc/{{sample}}-{{unit}}-{{read}}_fastqc.html",
         zip=f"{OUTDIR}/qc/fastqc/{{sample}}-{{unit}}-{{read}}_fastqc.zip"
+    log:
+        f"{LOGDIR}/fastqc_untrimmed/{{sample}}-{{unit}}-{{read}}.log"
     threads: get_resource("fastqc","threads")
     resources:
-        mem_mb = get_resource("fastqc","mem"),
+        mem_mb = get_resource("fastqc","mem_mb"),
         runtime = get_resource("fastqc","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{sample}}-{{unit}}-{{read}}.fastqc.txt"
     wrapper:
-        "0.79.0/bio/fastqc"
+        "v3.5.0/bio/fastqc"
+
+rule fastqc_trimmed:
+    input:
+        lambda wc: get_trimmed_reads_qc(wc)[wc.read]
+    output:
+        html=f"{OUTDIR}/qc/fastqc/{{sample}}-{{unit}}-{{read}}_trimmed_fastqc.html",
+        zip=f"{OUTDIR}/qc/fastqc/{{sample}}-{{unit}}-{{read}}_trimmed_fastqc.zip"
+    log:
+        f"{LOGDIR}/fastqc_trimmed/{{sample}}-{{unit}}-{{read}}.log"
+    threads: get_resource("fastqc","threads")
+    resources:
+        mem_mb = get_resource("fastqc","mem_mb"),
+        runtime = get_resource("fastqc","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{sample}}-{{unit}}-{{read}}.trimmed.fastqc.txt"
+    wrapper:
+        "v3.5.0/bio/fastqc"
 
 rule samtools_stats:
     input:
@@ -20,47 +41,50 @@ rule samtools_stats:
         f"{LOGDIR}/samtools-stats/{{sample}}-{{unit}}.log"
     threads: get_resource("samtools_stats","threads")
     resources:
-        mem_mb = get_resource("samtools_stats","mem"),
+        mem_mb = get_resource("samtools_stats","mem_mb"),
         runtime = get_resource("samtools_stats","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/{{sample}}-{{unit}}.samtools_stats.txt"
     wrapper:
-        "0.79.0/bio/samtools/stats"
+        "v3.5.0/bio/samtools/stats"
 
 rule genome_dict:
     input:
         genome=config["ref"]["genome"],
         fai=f"{config['ref']['genome']}.fai"
     output:
-        dict=os.path.splitext(config["ref"]["genome"])[0] + ".dict"
-    threads: get_resource("genome_dict","threads")
-    resources:
-        mem_mb = get_resource("genome_dict","mem"),
-        runtime = get_resource("genome_dict","runtime")
-    conda:
-        "../envs/gatk.yaml"
+        dict=re.sub(r"\.fa","",os.path.splitext(config["ref"]["genome"])[0]) + ".dict"
     log:
-        stdout=f"{LOGDIR}/genome_dict/log.out",
-        stderr=f"{LOGDIR}/genome_dict/log.err"
-    shell:"""
-        gatk CreateSequenceDictionary -R {input.genome} > {log.stdout} 2> {log.stderr}
-    """
+        f"{LOGDIR}/picard/genome_dict/CreateSequenceDictionary.log"
+    params:
+        java_opts = "-XX:ParallelGCThreads={}".format(get_resource("genome_dict","threads"))
+    resources:
+        mem_mb = get_resource("genome_dict","mem_mb"),
+        runtime = get_resource("genome_dict","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/genome_dict.txt"
+    wrapper:
+        "v3.5.0/bio/picard/createsequencedictionary"
 
 if "restrict_regions" in config["processing"]:
     rule bed_to_interval:
         input:
-            file=config["processing"]["restrict_regions"],
-            SD=config["ref"]["genome"],
-            dict=os.path.splitext(config["ref"]["genome"])[0] + ".dict"
+            bed=config["processing"]["restrict_regions"],
+            dict=re.sub(r"\.fa.*","",os.path.splitext(config["ref"]["genome"])[0]) + ".dict"
         output:
             temp(f"{OUTDIR}/regions.intervals")
-        conda:
-            "../envs/picard.yaml"
-        resources:
-            mem_mb = get_resource("bed_to_interval","mem"),
-            runtime = get_resource("bed_to_interval","runtime")
+        log:
+            f"{LOGDIR}/picard/bed_to_interval/bedtointervals.log"
         params:
-            extra = "-Xmx{}m".format(get_resource("bed_to_interval","mem"))
-        shell:
-            "picard BedToIntervalList {params.extra} I={input.file} O={output} SD={input.SD}"
+            extra = "",
+            java_opts = "-XX:ParallelGCThreads={}".format(get_resource("bed_to_interval","threads"))
+        resources:
+            mem_mb =  get_resource("bed_to_interval","mem_mb"),
+            runtime = get_resource("bed_to_interval","runtime")
+        benchmark:
+            f"{LOGDIR}/benchmarks/bed_to_interval.txt"
+        wrapper:
+            "v3.5.0/bio/picard/bedtointervallist"
 
     rule picard_collect_hs_metrics:
         input:
@@ -72,30 +96,39 @@ if "restrict_regions" in config["processing"]:
             f"{OUTDIR}/qc/picard/{{sample}}-{{unit}}.txt"
         log:
             f"{LOGDIR}/picard_collect_hs_metrics/{{sample}}-{{unit}}.log"
-        threads: get_resource("picard_collect_hs_metrics","threads")
-        resources:
-            mem_mb = get_resource("picard_collect_hs_metrics","mem"),
-            runtime = get_resource("picard_collect_hs_metrics","runtime")
         params:
-            extra = ""
+            extra = "",
+            java_opts = "-XX:ParallelGCThreads={}".format(get_resource("picard_collect_hs_metrics","threads"))
+        resources:
+            mem_mb = get_resource("picard_collect_hs_metrics","mem_mb"),
+            runtime = get_resource("picard_collect_hs_metrics","runtime")
+        benchmark:
+            f"{LOGDIR}/benchmarks/{{sample}}-{{unit}}.picard_collect_hs_metrics.txt"
         wrapper:
-            "0.79.0/bio/picard/collecthsmetrics"
+            "v3.5.0/bio/picard/collecthsmetrics"
 
 rule multiqc:
     input:
          [expand(f"{OUTDIR}/qc/fastqc/{row.sample}-{row.unit}-{{r}}_fastqc.zip", r=["r1"]) for row in units.itertuples() if (str(getattr(row, 'fq2')) == "nan")],
          [expand(f"{OUTDIR}/qc/fastqc/{row.sample}-{row.unit}-{{r}}_fastqc.zip", r=["r1","r2"]) for row in units.itertuples() if (str(getattr(row, 'fq2')) != "nan")],
+         [expand(f"{OUTDIR}/qc/fastqc/{row.sample}-{row.unit}-{{r}}_trimmed_fastqc.zip", r=["r1"]) for row in units.itertuples() if (str(getattr(row, 'fq2')) == "nan")],
+         [expand(f"{OUTDIR}/qc/fastqc/{row.sample}-{row.unit}-{{r}}_trimmed_fastqc.zip", r=["r1","r2"]) for row in units.itertuples() if (str(getattr(row, 'fq2')) != "nan")],
          expand(f"{OUTDIR}/qc/samtools-stats/{{u.sample}}-{{u.unit}}.txt", u=units.itertuples()),
          expand(f"{OUTDIR}/qc/dedup/{{u.sample}}-{{u.unit}}.metrics.txt", u=units.itertuples()),
          expand(f"{OUTDIR}/qc/picard/{{u.sample}}-{{u.unit}}.txt", u=units.itertuples()) if config["processing"].get("restrict_regions") else [],
          expand(f"{OUTDIR}/snpeff/{{u.group}}.csv", u=samples.itertuples())
     output:
         report(f"{OUTDIR}/qc/multiqc.html", caption="../report/multiqc.rst", category="Quality control")
+    params:
+        extra = "--config res/config/multiqc_config.yaml",
+        use_input_files_only=True
     log:
         f"{LOGDIR}/multiqc.log"
-    threads: get_resource("multiqc","threads")
     resources:
-        mem_mb = get_resource("multiqc","mem"),
+        threads = get_resource("multiqc","threads"),
+        mem_mb = get_resource("multiqc","mem_mb"),
         runtime = get_resource("multiqc","runtime")
+    benchmark:
+        f"{LOGDIR}/benchmarks/multiqc.txt"
     wrapper:
-        "v1.23.4/bio/multiqc"
+        "v3.5.0/bio/multiqc"

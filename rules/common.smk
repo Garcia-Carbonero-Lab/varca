@@ -12,7 +12,7 @@ def get_contigs():
             contigs = pd.read_csv(config["contigs"],sep="\t",header=None,usecols=[0],dtype=str).squeeze("columns")
         else:
             contigs = pd.read_table(fai, header=None, usecols=[0], dtype=str).squeeze("columns")
-        return [re.sub("\*","___",x) for x in contigs]
+        return [re.sub(r"\*","___",x) for x in contigs]
 
 def get_resource(rule,resource):
     try:
@@ -48,6 +48,14 @@ def get_trimmed_reads(wildcards):
                       OUTDIR=OUTDIR, group=[1, 2], **wildcards)
     # single end sample
     return f"{OUTDIR}/trimmed/{{sample}}-{{unit}}.fastq.gz".format(**wildcards)
+
+def get_trimmed_reads_qc(wildcards):
+    """Get trimmed reads of given sample-unit."""
+    if not is_single_end(wildcards.sample, wildcards.unit):
+        # paired-end sample
+        return {"r1": "{OUTDIR}/trimmed/{sample}-{unit}.1.fastq.gz".format(OUTDIR=OUTDIR, sample=wildcards.sample, unit=wildcards.unit), "r2": "{OUTDIR}/trimmed/{sample}-{unit}.2.fastq.gz".format(OUTDIR=OUTDIR, sample=wildcards.sample, unit=wildcards.unit)}
+    # single end sample
+    return {"r1": "{OUTDIR}/trimmed/{sample}-{unit}.fastq.gz".format(OUTDIR=OUTDIR, sample=wildcards.sample, unit=wildcards.unit)}
 
 
 def get_sample_bams(sample):
@@ -97,22 +105,11 @@ def get_recal_input(bai=False):
         return f
 
 def get_mutect_params(sample):
-    if config["processing"].get("restrict_regions"):
-        regions_call="-L "+config["processing"].get("restrict_regions")
-    else:
-        regions_call=""
     if samples.loc[(sample),"control"] != sample:
-        normal_call="-I "+get_merged_bam(samples.loc[(sample),"control"])[0]+" -normal "+samples.loc[(sample),"control"]
+        normal_call="-I "+get_merged_bam(samples.loc[(sample),"control"])[0]+" -normal "+samples.loc[(sample),"control"]+" "
     else:
-        normal_call=""
-    return regions_call,normal_call
-
-def get_vep_params():
-    cache=" ".join(["--cache",str(config["annotation"]["vep"]["cache_version"]),"--dir_cache",config["annotation"]["vep"]["cache_directory"],"--offline"]) if config["annotation"]["vep"]["cache"] else "--database"
-    assembly=" ".join(["--assembly",config["annotation"]["vep"]["assembly"]])
-    port="--port 3337" if config["annotation"]["vep"]["assembly"] == "GRCh37" else ""
-    ann=config["annotation"]["vep"]["annotations"]
-    return " ".join([cache, assembly, port, ann])
+        normal_call=" "
+    return normal_call
 
 def get_contig_file_name(contigfn):
     contig = re.sub("___","*",contigfn)
